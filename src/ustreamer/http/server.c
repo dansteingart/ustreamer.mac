@@ -203,7 +203,7 @@ int us_server_listen(us_server_s *server) {
 		if (stream->cap->desired_fps > 0) {
 			interval.tv_usec = 1000000 / (stream->cap->desired_fps * 2);
 		} else {
-			interval.tv_usec = 16000; // ~60fps
+			interval.tv_usec = 33000; // ~30fps when no desired fps set
 		}
 		assert((run->refresher = event_new(run->base, -1, EV_PERSIST, _http_refresher, server)) != NULL);
 		assert(!event_add(run->refresher, &interval));

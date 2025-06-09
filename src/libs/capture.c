@@ -421,6 +421,7 @@ int us_capture_hwbuf_grab(us_capture_s *cap, us_capture_hwbuf_s **hw) {
 		
 		// Check if frame is available
 		if (!macos_camera_has_frame(cap->macos_cam)) {
+			// Return immediately, main loop will handle the delay
 			return US_ERROR_NO_DATA;
 		}
 		

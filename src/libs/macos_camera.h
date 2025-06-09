@@ -51,6 +51,7 @@ int macos_camera_stop(macos_camera_s *cam);
 // Frame capture
 int macos_camera_grab_frame(macos_camera_s *cam, us_frame_s *frame);
 int macos_camera_has_frame(macos_camera_s *cam);
+int macos_camera_wait_frame(macos_camera_s *cam, double timeout_sec);
 
 // Camera information
 const char *macos_camera_get_name(macos_camera_s *cam);

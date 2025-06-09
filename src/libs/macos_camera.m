@@ -38,6 +38,7 @@
 
 @interface MacOSCameraDelegate : NSObject <AVCaptureVideoDataOutputSampleBufferDelegate>
 @property (nonatomic, strong) NSLock *frameLock;
+@property (nonatomic, strong) NSCondition *frameCondition;
 @property (nonatomic) CVPixelBufferRef latestFrame;
 @property (nonatomic) bool hasNewFrame;
 @end
@@ -48,6 +49,7 @@
     self = [super init];
     if (self) {
         _frameLock = [[NSLock alloc] init];
+        _frameCondition = [[NSCondition alloc] init];
         _latestFrame = NULL;
         _hasNewFrame = false;
     }
@@ -82,6 +84,11 @@
         _hasNewFrame = true;
         
         [_frameLock unlock];
+        
+        // Signal waiting threads that a new frame is available
+        [_frameCondition lock];
+        [_frameCondition signal];
+        [_frameCondition unlock];
     }
 }
 
@@ -401,6 +408,31 @@ int macos_camera_has_frame(macos_camera_s *cam) {
     [cam->delegate.frameLock unlock];
     
     return hasFrame ? 1 : 0;
+}
+
+int macos_camera_wait_frame(macos_camera_s *cam, double timeout_sec) {
+    if (cam == NULL || cam->delegate == NULL) return -1;
+    
+    [cam->delegate.frameCondition lock];
+    
+    // Check if frame is already available
+    if (macos_camera_has_frame(cam)) {
+        [cam->delegate.frameCondition unlock];
+        return 1;
+    }
+    
+    // Calculate absolute timeout
+    NSDate *timeoutDate = [NSDate dateWithTimeIntervalSinceNow:timeout_sec];
+    
+    // Wait for frame with timeout
+    BOOL success = [cam->delegate.frameCondition waitUntilDate:timeoutDate];
+    [cam->delegate.frameCondition unlock];
+    
+    if (success && macos_camera_has_frame(cam)) {
+        return 1; // Frame available
+    } else {
+        return 0; // Timeout or no frame
+    }
 }
 
 static int _pixel_buffer_to_frame(CVPixelBufferRef pixelBuffer, us_frame_s *frame, uint target_format) {

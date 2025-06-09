@@ -195,14 +195,51 @@ void us_stream_loop(us_stream_s *stream) {
 #		undef CREATE_WORKER
 
 		US_LOG_INFO("Capturing ...");
+		US_LOG_ERROR("DEBUG: About to enter main capture loop");
 
 		uint slowdown_count = 0;
+		uint64_t loop_count = 0;
+		uint64_t no_data_count = 0;
+		uint64_t success_count = 0;
+		uint64_t error_count = 0;
+		uint64_t last_debug_time = us_get_now_monotonic();
+		
+		US_LOG_ERROR("DEBUG: Starting main capture loop monitoring...");
+		printf("DEBUG: Main loop starting - you should see stats every second\n");
+		fflush(stdout);
+		
 		while (!atomic_load(&run->stop) && !atomic_load(&threads_stop)) {
 			us_capture_hwbuf_s *hw;
-			switch (us_capture_hwbuf_grab(cap, &hw)) {
-				case 0 ... INT_MAX: break; // Grabbed buffer number
-				case US_ERROR_NO_DATA: continue; // Broken frame
-				default: goto close; // Any error
+			loop_count++;
+			
+			int grab_result = us_capture_hwbuf_grab(cap, &hw);
+			
+			// Debug logging every second
+			uint64_t now = us_get_now_monotonic();
+			if (now - last_debug_time >= 1000) {
+				printf("DEBUG: Main loop stats - total: %llu, success: %llu, no_data: %llu, errors: %llu\n", 
+				       loop_count, success_count, no_data_count, error_count);
+				fflush(stdout);
+				last_debug_time = now;
+				// Reset counters for next interval
+				loop_count = 0;
+				success_count = 0;
+				no_data_count = 0;
+				error_count = 0;
+			}
+			
+			switch (grab_result) {
+				case 0 ... INT_MAX: 
+					success_count++;
+					break; // Grabbed buffer number
+				case US_ERROR_NO_DATA: 
+					no_data_count++;
+					// Add small delay to prevent busy-wait when no frame available
+					usleep(1000); // 1ms sleep to reduce CPU usage
+					continue; // Broken frame
+				default: 
+					error_count++;
+					goto close; // Any error
 			}
 
 			_stream_update_captured_fpsi(stream, &hw->raw, true);
@@ -291,7 +328,7 @@ static void *_releaser_thread(void *v_ctx) {
 			if (atomic_load(ctx->stop)) {
 				goto done;
 			}
-			usleep(5 * 1000);
+			usleep(10 * 1000); // Increased to 10ms for lower CPU usage
 		}
 
 		US_MUTEX_LOCK(*ctx->mutex);
