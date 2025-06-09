@@ -32,7 +32,11 @@
 
 #include <sys/mman.h>
 
+#ifdef __APPLE__
+#include "../libs/macos_v4l2_stub.h"
+#else
 #include <linux/videodev2.h>
+#endif
 
 #include "../libs/types.h"
 #include "../libs/tools.h"

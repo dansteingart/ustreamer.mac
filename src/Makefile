@@ -12,11 +12,40 @@ _USTR = ustreamer.bin
 _DUMP = ustreamer-dump.bin
 _V4P = ustreamer-v4p.bin
 
-_CFLAGS = -MD -c -std=c17 -Wall -Wextra -D_GNU_SOURCE $(CFLAGS)
+_CFLAGS = -MD -c -std=c17 -Wall -Wextra $(CFLAGS)
+ifeq ($(shell uname -s),Linux)
+override _CFLAGS += -D_GNU_SOURCE
+endif
 
-_USTR_LDFLAGS = $(LDFLAGS) -lm -ljpeg -pthread -lrt -levent -levent_pthreads
-_DUMP_LDFLAGS = $(LDFLAGS) -lm -ljpeg -pthread -lrt
-_V4P_LDFLAGS = $(LDFLAGS) -lm -ljpeg -pthread -lrt
+# Add macOS camera support flag for ustreamer only
+_USTR_CFLAGS = $(_CFLAGS)
+_DUMP_CFLAGS = $(_CFLAGS)
+ifeq ($(shell uname -s),Darwin)
+override _USTR_CFLAGS += -DWITH_MACOS_CAMERA
+endif
+
+# macOS specific flags
+ifeq ($(shell uname -s),Darwin)
+override _CFLAGS += $(shell $(PKG_CONFIG) --cflags libjpeg libevent 2>/dev/null)
+override _USTR_LDFLAGS += $(shell $(PKG_CONFIG) --libs libjpeg libevent libevent_pthreads 2>/dev/null)
+override _DUMP_LDFLAGS += $(shell $(PKG_CONFIG) --libs libjpeg 2>/dev/null)
+override _V4P_LDFLAGS += $(shell $(PKG_CONFIG) --libs libjpeg 2>/dev/null)
+# Add AVFoundation and other macOS frameworks
+override _USTR_LDFLAGS += -framework Foundation -framework AVFoundation -framework CoreMedia -framework CoreVideo -framework VideoToolbox
+override _DUMP_LDFLAGS += -framework Foundation
+override _V4P_LDFLAGS += -framework Foundation
+endif
+
+_USTR_LDFLAGS = $(LDFLAGS) -lm -ljpeg -pthread -levent -levent_pthreads
+_DUMP_LDFLAGS = $(LDFLAGS) -lm -ljpeg -pthread
+_V4P_LDFLAGS = $(LDFLAGS) -lm -ljpeg -pthread
+
+# Add -lrt only on Linux
+ifeq ($(shell uname -s),Linux)
+override _USTR_LDFLAGS += -lrt
+override _DUMP_LDFLAGS += -lrt
+override _V4P_LDFLAGS += -lrt
+endif
 
 _USTR_SRCS = $(shell ls \
 	libs/*.c \
@@ -33,6 +62,11 @@ _DUMP_SRCS = $(shell ls \
 	dump/*.c \
 )
 
+# Add macOS camera support on Darwin (only for ustreamer, not dump)
+ifeq ($(shell uname -s),Darwin)
+_USTR_SRCS += libs/macos_camera.m
+endif
+
 _V4P_SRCS = $(shell ls \
 	libs/*.c \
 	libs/drm/*.c \
@@ -42,11 +76,17 @@ _V4P_SRCS = $(shell ls \
 _BUILD = build
 
 _TARGETS = $(_USTR) $(_DUMP)
-_OBJS = $(_USTR_SRCS:%.c=$(_BUILD)/%.o) $(_DUMP_SRCS:%.c=$(_BUILD)/%.o)
+
+# Convert source files to object files (handle both .c and .m files)
+# Use separate object directories to handle different compiler flags
+_USTR_OBJS = $(patsubst %.c,$(_BUILD)/ustr/%.o,$(filter %.c,$(_USTR_SRCS))) $(patsubst %.m,$(_BUILD)/ustr/%.o,$(filter %.m,$(_USTR_SRCS)))
+_DUMP_OBJS = $(patsubst %.c,$(_BUILD)/dump/%.o,$(filter %.c,$(_DUMP_SRCS))) $(patsubst %.m,$(_BUILD)/dump/%.o,$(filter %.m,$(_DUMP_SRCS)))
+_OBJS = $(_USTR_OBJS) $(_DUMP_OBJS)
 
 
 # =====
-ifneq ($(shell sh -c 'uname 2>/dev/null || echo Unknown'),FreeBSD)
+# Add atomic library only on Linux (FreeBSD and macOS don't need it)
+ifeq ($(shell uname -s),Linux)
 override _USTR_LDFLAGS += -latomic
 override _DUMP_LDFLAGS += -latomic
 override _V4P_LDFLAGS += -latomic
@@ -78,7 +118,7 @@ endif
 
 ifneq ($(MK_WITH_SETPROCTITLE),)
 override _CFLAGS += -DMK_WITH_SETPROCTITLE -DWITH_SETPROCTITLE
-ifeq ($(shell uname -s | tr A-Z a-z),linux)
+ifeq ($(shell uname -s),Linux)
 override _USTR_LDFLAGS += -lbsd
 endif
 endif
@@ -114,12 +154,12 @@ install-strip: install
 	done
 
 
-$(_USTR): $(_USTR_SRCS:%.c=$(_BUILD)/%.o)
+$(_USTR): $(_USTR_OBJS)
 	$(info == LD $@)
 	$(ECHO) $(CC) $^ -o $@ $(_USTR_LDFLAGS)
 
 
-$(_DUMP): $(_DUMP_SRCS:%.c=$(_BUILD)/%.o)
+$(_DUMP): $(_DUMP_OBJS)
 	$(info == LD $@)
 	$(ECHO) $(CC) $^ -o $@ $(_DUMP_LDFLAGS)
 
@@ -129,10 +169,22 @@ $(_V4P): $(_V4P_SRCS:%.c=$(_BUILD)/%.o)
 	$(ECHO) $(CC) $^ -o $@ $(_V4P_LDFLAGS)
 
 
-$(_BUILD)/%.o: %.c
-	$(info -- CC $<)
+# Build rules for ustreamer objects (with macOS camera support)
+$(_BUILD)/ustr/%.o: %.c
+	$(info -- CC $< (ustreamer))
 	$(ECHO) mkdir -p $(dir $@) || true
-	$(ECHO) $(CC) $< -o $@ $(_CFLAGS)
+	$(ECHO) $(CC) $< -o $@ $(_USTR_CFLAGS)
+
+$(_BUILD)/ustr/%.o: %.m
+	$(info -- CC $< (ustreamer))
+	$(ECHO) mkdir -p $(dir $@) || true
+	$(ECHO) $(CC) $< -o $@ $(_USTR_CFLAGS)
+
+# Build rules for dump objects (without macOS camera support)
+$(_BUILD)/dump/%.o: %.c
+	$(info -- CC $< (dump))
+	$(ECHO) mkdir -p $(dir $@) || true
+	$(ECHO) $(CC) $< -o $@ $(_DUMP_CFLAGS)
 
 
 clean:

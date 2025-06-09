@@ -29,7 +29,11 @@
 
 #include <jpeglib.h>
 
+#ifdef __APPLE__
+#include "../../../libs/macos_v4l2_stub.h"
+#else
 #include <linux/videodev2.h>
+#endif
 
 #include "../../../libs/tools.h"
 #include "../../../libs/frame.h"

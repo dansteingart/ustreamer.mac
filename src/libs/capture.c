@@ -37,8 +37,12 @@
 #include <sys/time.h>
 
 #include <pthread.h>
+#ifdef __APPLE__
+#include "macos_v4l2_stub.h"
+#else
 #include <linux/videodev2.h>
 #include <linux/v4l2-controls.h>
+#endif
 
 #include "types.h"
 #include "errors.h"
@@ -49,6 +53,10 @@
 #include "frame.h"
 #include "xioctl.h"
 #include "tc358743.h"
+
+#ifdef __APPLE__
+#include "macos_camera.h"
+#endif
 
 
 static const struct {
@@ -141,10 +149,20 @@ us_capture_s *us_capture_init(void) {
 	cap->min_frame_size = 128;
 	cap->timeout = 1;
 	cap->run = run;
+
+#if defined(__APPLE__) && defined(WITH_MACOS_CAMERA)
+	cap->macos_cam = macos_camera_init();
+#endif
+
 	return cap;
 }
 
 void us_capture_destroy(us_capture_s *cap) {
+#if defined(__APPLE__) && defined(WITH_MACOS_CAMERA)
+	if (cap->macos_cam) {
+		macos_camera_destroy(cap->macos_cam);
+	}
+#endif
 	free(cap->run);
 	free(cap);
 }
@@ -178,6 +196,47 @@ int us_capture_parse_io_method(const char *str) {
 
 int us_capture_open(us_capture_s *cap) {
 	us_capture_runtime_s *const run = cap->run;
+
+#if defined(__APPLE__) && defined(WITH_MACOS_CAMERA)
+	// macOS camera implementation
+	if (cap->macos_cam) {
+		_LOG_INFO("Opening macOS camera device: %s", cap->path);
+		
+		// List available cameras
+		macos_camera_list_devices();
+		
+		// Select camera (use device path as device selector)
+		if (macos_camera_select_device(cap->macos_cam, cap->path) < 0) {
+			_LOG_ERROR("Failed to select macOS camera device");
+			goto error;
+		}
+		
+		// Configure camera
+		macos_camera_set_resolution(cap->macos_cam, cap->width, cap->height);
+		macos_camera_set_fps(cap->macos_cam, cap->desired_fps > 0 ? cap->desired_fps : 30);
+		macos_camera_set_format(cap->macos_cam, cap->format);
+		
+		// Start camera
+		if (macos_camera_start(cap->macos_cam) < 0) {
+			_LOG_ERROR("Failed to start macOS camera");
+			goto error;
+		}
+		
+		// Update runtime information
+		run->fd = 1; // Fake fd to indicate open
+		run->width = macos_camera_get_width(cap->macos_cam);
+		run->height = macos_camera_get_height(cap->macos_cam);
+		run->format = cap->format;
+		run->hz = macos_camera_get_fps(cap->macos_cam);
+		run->n_bufs = 1; // Set at least one buffer for releaser queue
+		
+		_LOG_INFO("macOS camera opened: %s (%ux%u @%.2f fps)", 
+		         macos_camera_get_name(cap->macos_cam),
+		         run->width, run->height, run->hz);
+		         
+		return 0;
+	}
+#endif
 
 	if (access(cap->path, R_OK | W_OK) < 0) {
 		US_ONCE_FOR(run->open_error_once, -errno, {
@@ -293,6 +352,16 @@ void us_capture_close(us_capture_s *cap) {
 
 	bool say = false;
 
+#if defined(__APPLE__) && defined(WITH_MACOS_CAMERA)
+	// macOS camera cleanup
+	if (cap->macos_cam) {
+		macos_camera_stop(cap->macos_cam);
+		run->fd = -1;
+		_LOG_INFO("macOS camera stopped");
+		return;
+	}
+#endif
+
 	if (run->streamon) {
 		say = true;
 		_LOG_DEBUG("Calling VIDIOC_STREAMOFF ...");
@@ -344,6 +413,54 @@ int us_capture_hwbuf_grab(us_capture_s *cap, us_capture_hwbuf_s **hw) {
 	//     самый-самый свежий, содержащий при этом валидные данные.
 	//   - Если таковых не нашлось, вернуть US_ERROR_NO_DATA.
 	//   - Ошибка -1 возвращается при любых сбоях.
+
+#if defined(__APPLE__) && defined(WITH_MACOS_CAMERA)
+	// macOS camera frame grabbing
+	if (cap->macos_cam) {
+		*hw = NULL;
+		
+		// Check if frame is available
+		if (!macos_camera_has_frame(cap->macos_cam)) {
+			return US_ERROR_NO_DATA;
+		}
+		
+		// Create a fake hardware buffer for macOS camera
+		static us_capture_hwbuf_s macos_hwbuf = {0};
+		static bool macos_hwbuf_initialized = false;
+		
+		if (!macos_hwbuf_initialized) {
+			// Initialize frame with default size, will reallocate as needed
+			macos_hwbuf.raw.data = NULL;
+			macos_hwbuf.raw.allocated = 0;
+			macos_hwbuf.raw.used = 0;
+			us_frame_realloc_data(&macos_hwbuf.raw, 1920 * 1080 * 2); // Max size
+			atomic_init(&macos_hwbuf.refs, 0);
+			macos_hwbuf_initialized = true;
+		}
+		
+		// Grab frame from macOS camera
+		if (macos_camera_grab_frame(cap->macos_cam, &macos_hwbuf.raw) < 0) {
+			return US_ERROR_NO_DATA;
+		}
+		
+		// Check minimum frame size
+		if (macos_hwbuf.raw.used < cap->min_frame_size) {
+			_LOG_DEBUG("Dropped too small frame: used=%zu < min=%zu", 
+			          macos_hwbuf.raw.used, cap->min_frame_size);
+			return US_ERROR_NO_DATA;
+		}
+		
+		macos_hwbuf.grabbed = true;
+		macos_hwbuf.buf.index = 0; // Set a valid index for the releaser queue
+		atomic_store(&macos_hwbuf.refs, 1);
+		*hw = &macos_hwbuf;
+		
+		_LOG_DEBUG("Grabbed macOS camera frame: %ux%u, used=%zu", 
+		          macos_hwbuf.raw.width, macos_hwbuf.raw.height, macos_hwbuf.raw.used);
+		          
+		return 0;
+	}
+#endif
 
 	if (_capture_wait_buffer(cap) < 0) {
 		return -1;
@@ -458,6 +575,16 @@ int us_capture_hwbuf_release(const us_capture_s *cap, us_capture_hwbuf_s *hw) {
 	assert(atomic_load(&hw->refs) == 0);
 	const uint index = hw->buf.index;
 	_LOG_DEBUG("Releasing HW buffer=%u ...", index);
+	
+#if defined(__APPLE__) && defined(WITH_MACOS_CAMERA)
+	// Skip V4L2 buffer release for macOS cameras - they don't use real V4L2 buffers
+	if (cap->macos_cam) {
+		hw->grabbed = false;
+		_LOG_DEBUG("HW buffer=%u released (macOS camera)", index);
+		return 0;
+	}
+#endif
+	
 	if (us_xioctl(cap->run->fd, VIDIOC_QBUF, &hw->buf) < 0) {
 		_LOG_PERROR("Can't release HW buffer=%u", index);
 		return -1;

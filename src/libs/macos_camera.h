@@ -2,6 +2,8 @@
 #                                                                            #
 #    uStreamer - Lightweight and fast MJPEG-HTTP streamer.                   #
 #                                                                            #
+#    macOS Camera Support - AVFoundation interface                           #
+#                                                                            #
 #    Copyright (C) 2018-2024  Maxim Devaev <mdevaev@gmail.com>               #
 #                                                                            #
 #    This program is free software: you can redistribute it and/or modify    #
@@ -19,23 +21,41 @@
 #                                                                            #
 *****************************************************************************/
 
-
 #pragma once
 
-#include <stdint.h>
-#include <stdbool.h>
-#include <string.h>
-#include <assert.h>
-
 #ifdef __APPLE__
-#include "../../../libs/macos_v4l2_stub.h"
-#else
-#include <linux/videodev2.h>
-#endif
 
-#include "../../../libs/frame.h"
+#include "types.h"
+#include "frame.h"
 
-#include "huffman.h"
+// Forward declarations for Objective-C types
+typedef struct macos_camera_s macos_camera_s;
 
+// Camera management functions
+macos_camera_s *macos_camera_init(void);
+void macos_camera_destroy(macos_camera_s *cam);
 
-void us_hw_encoder_compress(const us_frame_s *src, us_frame_s *dest);
+// Camera discovery and selection
+int macos_camera_list_devices(void);
+int macos_camera_select_device(macos_camera_s *cam, const char *device_id);
+
+// Camera configuration
+int macos_camera_set_resolution(macos_camera_s *cam, uint width, uint height);
+int macos_camera_set_fps(macos_camera_s *cam, uint fps);
+int macos_camera_set_format(macos_camera_s *cam, uint format);
+
+// Camera control
+int macos_camera_start(macos_camera_s *cam);
+int macos_camera_stop(macos_camera_s *cam);
+
+// Frame capture
+int macos_camera_grab_frame(macos_camera_s *cam, us_frame_s *frame);
+int macos_camera_has_frame(macos_camera_s *cam);
+
+// Camera information
+const char *macos_camera_get_name(macos_camera_s *cam);
+int macos_camera_get_width(macos_camera_s *cam);
+int macos_camera_get_height(macos_camera_s *cam);
+int macos_camera_get_fps(macos_camera_s *cam);
+
+#endif // __APPLE__

@@ -27,7 +27,11 @@
 #include <assert.h>
 
 #include <jpeglib.h>
+#ifdef __APPLE__
+#include "macos_v4l2_stub.h"
+#else
 #include <linux/videodev2.h>
+#endif
 
 #include "types.h"
 #include "logging.h"

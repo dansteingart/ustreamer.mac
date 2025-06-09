@@ -42,7 +42,9 @@ us_queue_s *us_queue_init(uint capacity) {
 
 	pthread_condattr_t attrs;
 	assert(!pthread_condattr_init(&attrs));
+#ifndef __APPLE__
 	assert(!pthread_condattr_setclock(&attrs, CLOCK_MONOTONIC));
+#endif
 	assert(!pthread_cond_init(&queue->full_cond, &attrs));
 	assert(!pthread_cond_init(&queue->empty_cond, &attrs));
 	assert(!pthread_condattr_destroy(&attrs));
@@ -72,6 +74,9 @@ void us_queue_destroy(us_queue_s *queue) {
 	}
 
 int us_queue_put(us_queue_s *queue, void *item, ldf timeout) {
+	if (queue == NULL) {
+		return -1;
+	}
 	US_MUTEX_LOCK(queue->mutex);
 	if (timeout == 0) {
 		if (queue->size == queue->capacity) {

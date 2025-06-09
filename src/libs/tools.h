@@ -28,6 +28,9 @@
 #include <unistd.h>
 #include <limits.h>
 #include <locale.h> // Make C locale for strerror_l()
+#ifdef __APPLE__
+#include <xlocale.h>
+#endif
 #include <errno.h>
 #include <math.h>
 #include <time.h>
@@ -186,7 +189,15 @@ INLINE int us_flock_timedwait_monotonic(int fd, ldf timeout) {
 }
 
 INLINE char *us_errno_to_string(int error) {
-#	if (_POSIX_C_SOURCE >= 200112L) && !defined(_GNU_SOURCE) // XSI
+#	if defined(__APPLE__) // macOS
+	char buf[2048];
+	const uz max_len = sizeof(buf) - 1;
+	if (strerror_r(error, buf, max_len) != 0) {
+		US_SNPRINTF(buf, max_len, "Errno = %d", error);
+	}
+	return us_strdup(buf);
+
+#	elif (_POSIX_C_SOURCE >= 200112L) && !defined(_GNU_SOURCE) // XSI
 	char buf[2048];
 	const uz max_len = sizeof(buf) - 1;
 	if (strerror_r(error, buf, max_len) != 0) {

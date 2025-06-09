@@ -25,8 +25,12 @@
 #include <unistd.h>
 #include <fcntl.h>
 
+#ifdef __APPLE__
+#include "macos_v4l2_stub.h"
+#else
 #include <linux/videodev2.h>
 #include <linux/v4l2-controls.h>
+#endif
 
 #include "types.h"
 #include "tools.h"

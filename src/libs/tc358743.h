@@ -22,7 +22,11 @@
 
 #pragma once
 
+#ifdef __APPLE__
+#include "macos_v4l2_stub.h"
+#else
 #include <linux/v4l2-controls.h>
+#endif
 
 #include "types.h"
 

@@ -24,10 +24,18 @@
 
 #include <stdatomic.h>
 
+#ifdef __APPLE__
+#include "macos_v4l2_stub.h"
+#else
 #include <linux/videodev2.h>
+#endif
 
 #include "types.h"
 #include "frame.h"
+
+#if defined(__APPLE__) && defined(WITH_MACOS_CAMERA)
+#include "macos_camera.h"
+#endif
 
 
 #define US_VIDEO_MIN_WIDTH		((uint)160)
@@ -120,6 +128,10 @@ typedef struct {
 	uint				timeout;
 	us_controls_s 		ctl;
 	us_capture_runtime_s *run;
+
+#if defined(__APPLE__) && defined(WITH_MACOS_CAMERA)
+	macos_camera_s		*macos_cam;
+#endif
 } us_capture_s;
 
 

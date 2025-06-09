@@ -26,7 +26,11 @@
 
 #include <sys/types.h>
 
+#ifdef __APPLE__
+#include "macos_v4l2_stub.h"
+#else
 #include <linux/videodev2.h>
+#endif
 
 #include "tools.h"
 #include "frame.h"

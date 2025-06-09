@@ -32,7 +32,11 @@
 #	include <sys/sysmacros.h>
 #endif
 
+#ifdef __APPLE__
+#include "../macos_v4l2_stub.h"
+#else
 #include <linux/videodev2.h>
+#endif
 
 #include <xf86drm.h>
 #include <xf86drmMode.h>
