@@ -31,7 +31,7 @@ override _USTR_LDFLAGS += $(shell $(PKG_CONFIG) --libs libjpeg libevent libevent
 override _DUMP_LDFLAGS += $(shell $(PKG_CONFIG) --libs libjpeg 2>/dev/null)
 override _V4P_LDFLAGS += $(shell $(PKG_CONFIG) --libs libjpeg 2>/dev/null)
 # Add AVFoundation and other macOS frameworks
-override _USTR_LDFLAGS += -framework Foundation -framework AVFoundation -framework CoreMedia -framework CoreVideo -framework VideoToolbox
+override _USTR_LDFLAGS += -framework Foundation -framework AVFoundation -framework CoreMedia -framework CoreVideo -framework VideoToolbox -framework QuartzCore
 override _DUMP_LDFLAGS += -framework Foundation
 override _V4P_LDFLAGS += -framework Foundation
 endif

@@ -59,4 +59,9 @@ int macos_camera_get_width(macos_camera_s *cam);
 int macos_camera_get_height(macos_camera_s *cam);
 int macos_camera_get_fps(macos_camera_s *cam);
 
+// Performance monitoring
+int macos_camera_get_dropped_frames(macos_camera_s *cam);
+int macos_camera_get_total_frames(macos_camera_s *cam);
+double macos_camera_get_drop_rate(macos_camera_s *cam);
+
 #endif // __APPLE__
